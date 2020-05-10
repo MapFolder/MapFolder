@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="Content-Type" content="text/html;charset=utf-8"/>
+    <link rel="stylesheet" type="text/css" href="index.css"/>
+    <script src="libs/libtess.debug.js"></script>
+    <script src="libs/leaflet/leaflet-src.js"></script>
+    <script src="libs/leaflet/L.ImageOverlay.Canvas.js"></script>
+    <script src="libs/pixi/pixi.5.2.2.min.js"></script>
+    <script src="libs/pixi/pixi-filters.js"></script>
+    <script src="libs/pixi/L.PixiOverlay.1.8.1.js"></script>
+    <link href='libs/leaflet/leaflet.css' rel='stylesheet' type='text/css' />
+    <script src="libs/mithril_v2.js"></script>
+    <script src="libs/requirejs/require.js"></script>
+    <script type="text/javascript">
+        require.config({
+            paths: {
+                "d3": "libs/d3/d3.v5"
+            }
+        });
+    </script>
+    <script type="text/javascript">
+    require([
+      'js/mainView',
+      'js/utils',
+      'js/DatasetManager',
+      'libs/papa/papaparse',
+      'd3'
+    ], function(mainView, utils, DatasetManager, Papa, d3) {
+
+      function isString(x) {
+        return Object.prototype.toString.call(x) === "[object String]"
+      }
+
+      function loadFileAsDataURL(file) {
+        return new Promise((resolve, reject) => {
+          var reader = new FileReader();
+          reader.onload = function(e) {
+            resolve(e.target.result);
+          }
+          reader.readAsDataURL(file);
+        });
+      }
+
+      function getBlobFromUrl(myImageUrl) {
+        return new Promise((resolve, reject) => {
+            let request = new XMLHttpRequest();
+            request.open('GET', myImageUrl, true);
+            request.responseType = 'blob';
+            request.onload = () => {
+                resolve(request.response);
+            };
+            request.onerror = reject;
+            request.send();
+        })
+      }
+
+      function loadJSONFile(file) {
+        return new Promise((resolve, reject) => {
+          var reader = new FileReader();
+          reader.onload = function(e) {
+            resolve(JSON.parse(e.target.result));
+          }
+          reader.readAsText(file);
+        });
+      }
+
+
+      // must be called in a click handler or some other user action
+      function downloadJSON(filename, json) {
+        var element = document.createElement('a');
+        element.setAttribute('href', 'data:text/json;charset=utf-8,' + JSON.stringify(json));
+        element.setAttribute('download', filename);
+
+        element.style.display = 'none';
+        document.body.appendChild(element);
+
+        element.click();
+
+        document.body.removeChild(element);
+      }
+
+      var component = function() {
+
+          function onFileSelect(vnode, e, stateProp) {
+              vnode.state[stateProp] = e.target.files[0];
+              e.redraw = false;
+          }
+
+          function onAddPairDataSet(vnode, e) {
+            if(vnode.state.addCSVFile && vnode.state.addImageFile) {
+              //e.redraw = false;
+              vnode.state.dataSets.push(
+                {csvFile: vnode.state.addCSVFile, imgFile: vnode.state.addImageFile, name: vnode.state.addPairName}
+              );
+              onDataChange(vnode, String(vnode.state.dataSets.length - 1));
+              //m.redraw();
+            }
+          }
+
+          function onAddJSONDataSet(vnode, e) {
+            if(vnode.state.addJSONFile) {
+              //e.redraw = false;
+              vnode.state.dataSets.push(
+                {jsonFile: vnode.state.addJSONFile, name: vnode.state.addJSONName}
+              );
+              onDataChange(vnode, String(vnode.state.dataSets.length - 1));
+              //m.redraw();
+            }
+          }
+
+          function onDownloadDataSet(vnode) {
+            var json = vnode.state.dataSetManager.exportJSON();
+            downloadJSON(vnode.state.dataSets[vnode.state.curDataSetIndex].name + '.geojson', json);
+          }
+
+          function onDataChange(vnode, index) {
+            var dataSet = vnode.state.dataSets[index];
+            console.log('Load Dataset:', dataSet.name);
+            vnode.state.curDataSetIndex = index;
+
+            if(dataSet.jsonFile) {
+              var preload = isString(dataSet.jsonFile) ? getBlobFromUrl('../data/' + dataSet.jsonFile) : Promise.resolve(dataSet.jsonFile);
+
+              preload
+                .then(file => loadJSONFile(file))
+                .then(json => vnode.state.dataSetManager.importJSON(json))
+                .then(() => { m.redraw(); });
+            } else {
+              var preloadPromise = dataSet.urlName ?
+              Promise.resolve({csvFile: `../data/${dataSet.urlName}.csv`, imgUrl: `../data/${dataSet.urlName}.jpg`})
+              :
+              loadFileAsDataURL(dataSet.imgFile).then(dataUrl => ({csvFile: dataSet.csvFile, imgUrl: dataUrl}));
+
+              preloadPromise
+                .then(({csvFile, imgUrl}) => vnode.state.dataSetManager.importPair(csvFile, imgUrl))
+                .then(dataSet => { m.redraw(); });
+            }
+          }
+
+
+          return {
+            oninit: (vnode) => {
+              vnode.state.dataSetManager = new DatasetManager(3000, 3000);
+              vnode.state.addPairName = 'User Map';
+              vnode.state.addJSONName = 'User Map';
+              vnode.state.addImageFile = null;
+              vnode.state.addCSVFile = null;
+              vnode.state.renderCP = true;
+              vnode.state.drawHelp = false;
+
+              vnode.state.dataSets = [
+                { jsonFile: 'al_idrisi.geojson', name: 'Al Idrisi map from Kitab Rujar' }, // https://commons.wikimedia.org/wiki/File:Al-Idrisi%27s_world_map.JPG#/media/File:Al-idrisi_world_map.jpg
+              ];
+              onDataChange(vnode, '0');
+
+            },
+            view: (vnode) => {
+              if(!vnode.state.dataSetManager.getCurDataset()) {
+                // initial state
+                return m('.loading');
+              } else {
+
+
+                // fill dataset select
+                var options = [];
+
+                for(var i in vnode.state.dataSets) {
+                  var dataSet = vnode.state.dataSets[i];
+                  options.push(m('option', {value: i}, [dataSet.name]));
+                }
+
+
+                var renderCP = vnode.state.renderCP;
+                var dataSet = vnode.state.dataSetManager.getCurDataset();
+
+                return m('.main', [
+                  m('.flex-header', [
+                    m('img', { src: './assets/logo.png', width: '650px', height: '193px' }),
+                    /*'Choose from the list of example datsets or add your own below.',*/
+                    m('.import-row', [
+                      m('p.importheader','Import'),
+                      m('div.import-help-wrapper', [
+                        m('p.import-help-button', { onclick: e => { vnode.state.drawHelp = !vnode.state.drawHelp }}, '?'),
+                        m('div.import-help-content-outer', { style: { display: vnode.state.drawHelp ? 'block' : 'none'}}, [
+                          m('div.arrow-up'),
+                          m('div.import-help-content-inner', [
+                            m('p.help-paragraph','There are two possible import methods:'),
+                            m('p.help-paragraph',[
+                              '1. Use ',
+                              m('a', { href: 'https://mapwarper.net/', target:'_blank'}, 'Map Warper'),
+                              ', or any other tool capable of generating the geo-referenced control points in the appropriate CSV file format.',
+                              ' Select both, the "CSV File" and the "Map Image" file which was originally uploaded to Map Warper (respectively which the control points refer to).',
+                              ' The full specification of the CSV File format can be found ',
+                              m('a', { href: 'https://todo', target:'_blank'}, 'here'), '.'
+                            ]),
+                            m('p.help-paragraph',[
+                              '2. Select a previously with MapFolder exported "GeoJSON File".',
+                              ' The full specification of the GeoJSON file format can be found ',
+                              m('a', { href: 'https://todo', target:'_blank'}, 'here'), '.'
+                            ]),
+                            m('p.help-paragraph',[
+                              'After selecting the appropriate file(s), specify a name for the dataset and click the "Add" button to add the dataset to the dropdown list below.',
+                            ]),
+                          ]),
+                        ]),
+                      ]),
+                    ]),
+                    m('.spacer'),
+                    m('.flex-row', [
+                      m('.flex-col', [
+                        m('label.fileinput', [
+                          m('input', { type: 'file', onchange: (e) => { onFileSelect(vnode, e, 'addImageFile'); } }),
+                          'Select Map Image'
+                        ]),
+                        m('label.fileinput', [
+                          m('input', { type: 'file', onchange: (e) => { onFileSelect(vnode, e, 'addCSVFile'); } }),
+                          'Select CSV File'
+                        ]),
+                      ]),
+                      m('div', { class: 'select-merge-line' }),
+                      m('div', {style: { position:'relative' }}, [
+                          m('input.titleinput', { type: 'text', value: vnode.state.addPairName, onchange: (e) => { vnode.state.addPairName = e.target.value; e.redraw = false; }}),
+                          m('p.namelabel', 'Dataset Name'),
+                      ]),
+                      m('div', { class: 'select-straight-line' }),
+                      m('button.addbutton', { onclick: (e) => { onAddPairDataSet(vnode, e) } }, 'Add'),
+                    ]),
+                    m('.flex-row', [
+                      m('.flex-col', [
+                        m('label.fileinput', [
+                          m('input', { type: 'file', onchange: (e) => {
+                            onFileSelect(vnode, e, 'addJSONFile');
+                            var name = e.target.files[0].name;
+                            vnode.state.addJSONName = name.substring(0, name.lastIndexOf('.'));
+                            e.redraw = true;
+                          } }),
+                          'Select GeoJSON File'
+                        ])
+                      ]),
+                      m('div', { class: 'select-straight-line' }),
+                      m('div', {style: { position:'relative' }}, [
+                          m('input.titleinput', { type: 'text', value: vnode.state.addJSONName, onchange: (e) => { vnode.state.addJSONName = e.target.value; e.redraw = false; }}),
+                          m('p.namelabel', 'Dataset Name'),
+                      ]),
+                      m('div', { class: 'select-straight-line' }),
+                      m('button.addbutton', { onclick: (e) => { onAddJSONDataSet(vnode, e) } }, 'Add'),
+                    ]),
+                    m('.spacer'),
+                    m('.flex-row', [
+                      m('span', {class:'dataset-select-label'}, 'Dataset:'),
+                      m('select', {
+                          class:'dataset-select-select',
+                          onchange: (e) => { e.redraw = false; onDataChange(vnode, e.target.value)},
+                          selectedIndex: Number(vnode.state.curDataSetIndex)
+                        }, options
+                      ),
+                      m('button.downloadbutton', { onclick: (e) => { onDownloadDataSet(vnode) }, title: 'Download Dataset' }),
+                    ]),
+                  ]),
+                  m(mainView, { dataSet, renderCP})
+                ]);
+
+              }
+            }
+          }
+      };
+
+      m.mount(document.body, component );
+
+    });
+    </script>
+  </head>
+  <body>
+  </body>
+</html>
