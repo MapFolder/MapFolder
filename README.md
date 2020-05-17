@@ -6,7 +6,7 @@ For details of the visualization, have a look at the abstract.
 
 # License
 
-The license for the source code of the project can be found in the `LICENSE` file.
+The license for the source code of the project can be found in the [LICENSE](LICENSE) file.
 The GeoJSON files exported using your own imported data is under whatever license you find appropriate, as long as it does not conflict with the license of the data imported to the tool.
 
 You may distribute screenshots or any visual output of the tool, in original or modified form. However, you must attribute the MapFolder team appropriately.
@@ -37,7 +37,7 @@ The image file may be of any format a web browser is capable to understand.
 
 ## GeoJSON
 
-We developed an extended [GeoJSON](geojson.org) format to import and export data according our specific needs.
+We developed an extended [GeoJSON](https://geojson.org) format to import and export data according our specific needs.
 
 Each feature, which is either a control point or a region calculated by MapFolder will be a "Feature" in a GeoJSON "FeatureCollection".
 
@@ -60,7 +60,7 @@ Any additional attribute of the "properties" object will be treated as key-value
 
 ### Example
 
-An example of the GeoJSON format can be found inside `data/al_idrisi.geojson`.
+An example of the GeoJSON format can be found inside [data/al_idrisi.geojson](data/al_idrisi.geojson).
 The basic structure resembles like this:
 ```
 {
